@@ -4,7 +4,7 @@
  * por P0.0 guardar el valor binario 100111 en la variable "auxiliar", si es
  * por P2.0 guardar el valor binario 111001011010110.
  *
- * 	Created on: Aug 29, 2025
+ * 	Created on: Sep 2, 2025
  *  Author: Matias Costamagna
  *
  */

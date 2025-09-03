@@ -6,7 +6,7 @@
  * subida configurarlo para que desborde cada 60 mseg. Considerar que
  * EINT1 tiene mayor prioridad que EINT2.
  *
- * 	Created on: Aug 29, 2025
+ * 	Created on: Sep 2, 2025
  *  Author: Matias Costamagna
  *
  */

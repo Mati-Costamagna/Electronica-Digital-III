@@ -12,7 +12,7 @@
  * pulsación conjunta de "Activación de Mayúsculas" con "tecla a/A" de
  * como resultado a la salida el equivalente en ascii "A".
  *
- * 	Created on: Aug 29, 2025
+ * 	Created on: Sep 2, 2025
  *  Author: Matias Costamagna
  *
  */
