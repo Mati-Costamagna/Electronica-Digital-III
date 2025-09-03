@@ -22,8 +22,69 @@
 
 #include <stdio.h>
 
+volatile uint32_t nticks_dc;
+uint32_t nticks_1ms = 99999;
+uint32_t nticks_10ms = 999999999;
+
+void cfgGPIO(void);
+void cfgIntExt(void);
 
 int main(void) {
 
+	nticks_dc = nticks_1ms;
+
+	cfgGPIO();
+
+	cfgIntExt();
+
+	cfgSysTick();
+
+	while(1){};
+
     return 0 ;
+}
+
+void cfgGPIO(void)
+{
+	LPC_PINCON->PINSEL1 &= ~(3<<7);
+	LPC_GPIO0->FIODIR |= (1<<22);
+}
+
+void cfgIntExt(void)
+{
+	LPC_SC->EXTMODE &= ~(1<<0);
+	LPC_SC->EXTPOLAR &= ~(1<<0);
+	LPC_SC->EXTINT |= (1<<0);
+	NVIC_EnableIRQ(EINT0_IRQn);
+	NVIC_SetPriority(EINT0_IRQn, 2);
+}
+
+void cfgSysTick(void)
+{
+	LPC_GPIO0->FIOSET |= (1<<22);
+	SysTick->LOAD = nticks_1ms;
+	SysTick->VAL = 0;
+	SysTick->CTRL |= (7<<0);
+	NVIC_SetPriority(SysTick_IRQn, 1);
+
+void EINT0_IRQHandler(void)
+{
+	LPC_SC->EXTINT |= (1<<0);
+	nticks_dc += nticks_1ms;
+	if(nticks_dc > nticks_10ms){
+		nticks_dc = nticks_1ms;
+	}
+}
+
+void SysTick_IRQHandler(void)
+{
+	if(LPC_GPIO0->FIOPIN & (1<<22)){
+		LPC_GPIO0->FIOCLR |= (1<<22);
+		SysTick->LOAD = (nticks_10ms - nticks_dc);\
+		SysTick->VAL = 0;
+	}else{
+		LPC_GPIO0->FIOSET |= (1<<22);
+		SysTick->LOAD = nticks_dc;
+		SysTick->VAL = 0;
+	}
 }
