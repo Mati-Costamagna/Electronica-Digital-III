@@ -38,14 +38,12 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-const static uint32_t ticks_200ms = 13999999; // 70e6 * 0.2 - 1
-const static uint32_t overflow_3s = 15;
-const static uint32_t overflow_5s = 25;
-const static uint32_t overflow_10s = 50;
-const static uint32_t overflow_20s = 100;
-const static uint32_t overflow_40s = 200;
-static uint32_t overflows = 0;
-static uint32_t overflows_goal = 0;
+static const uint32_t ticks_200ms = 13999999; // 70e6 * 0.2 - 1
+static const uint32_t overflow_3s = 15;
+static const uint32_t overflow_5s = 25;
+static const uint32_t overflow_10s = 50;
+static const uint32_t overflow_20s = 100;
+static const uint32_t overflow_40s = 200;
 static uint8_t switch_count = 0;
 
 
@@ -113,6 +111,7 @@ void EINT1_IRQHandler(void)
 }
 
 void SysTick_Handler(void){
+	static uint32_t overflows = 0;
 	overflows++;
 	if(overflows == overflows_goal){
 		if(overflows_goal == overflow_3s){

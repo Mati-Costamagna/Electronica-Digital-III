@@ -27,19 +27,18 @@
 
 #include <stdio.h>
 
-#define SIZE_WAVE (8)
-#define STARTING_IDX (0x20080000)
+static const uint8_t size_wave = 8;
+static const uint32_t starting_idx = 0x20080000;
+static const uint32_t ticks_10ms = 64999;
+static const uint32_t ticks_20ms = 129999;
+static uint32_t *ptr = (uint32_t*) starting_idx;
+static float avg = 0;
 void cfgGPIO(void);
 void cfgIntExt(void);
 void cfgSysTick(void);
 
 int main(void)
 {
-	const uint32_t ticks_10ms = (64999);
-	const uint32_t ticks_20ms = (129999);
-	uint32_t *ptr = (uint32_t*) STARTING_IDX;
-	uint8_t avg = 0;
-
 	cfgGPIO();
 
 	cfgIntExt();
@@ -56,11 +55,10 @@ int main(void)
 void cfgGPIO(void)
 {
 	LPC_GPIO2->FIODIR |= (1<<8);
-	LPC_GPIO2->FIODIR |= (1<<8 - 1);
+	LPC_GPIO2->FIODIR |= ((256 << 0) - 1);
 
-	LPC_PINCON->PINSEL4 &= (~(3 << 20) |= (1<<20) |= (1<<22));
-	LPC_PINCON->PINMODE4 &= (~(3 << 20) |= (2<<20) |= (1<<22));
-
+	LPC_PINCON->PINSEL4 |= ((1<<20) | (1<<22));
+	LPC_PINCON->PINMODE4 |= ((2<<20) | (1<<22));
 }
 
 void cfgIntExt(void)
@@ -95,27 +93,31 @@ void EINT0_IRQHandler(void)
 {
 	static uint32_t aux = 0;
 	aux = (aux+1)%4;
-	&ptr = STARTING_IDX + SIZE_WAVE*aux;
+	ptr = (uint32_t*)(starting_idx + size_wave*aux);
 	LPC_SC->EXTINT |= (1<<0);
 }
 
 void SysTick_Handler(void)
 {
-	static uitn32_t selectedBit = 0;
-	selectedBit = (selectedBit+1)%SIZE_WAVE;
+	static uint32_t selectedBit = 0;
+	LPC_GPIO2->FIOCLR |= (*ptr & (1<<selectedBit));
+	selectedBit = (selectedBit+1)%size_wave;
 	LPC_GPIO2->FIOSET |= (*ptr & (1<<selectedBit));
 	SysTick->CTRL &= SysTick->CTRL;
 }
 
-uint8_t calcAverage(void)
+float calcAverage(void)
 {
 	uint8_t sum = 0;
-	for(uint8_t i = 0; i < SIZE_WAVE; i++){
-		sum += (*ptr &= (1<<i));
+	for(uint8_t i = 0; i < size_wave; i++){
+		sum += (*ptr & (1<<i));
 	}
-	return sum/SIZE_WAVE;
+	return sum/size_wave;
 }
 
-void showAverage(uint8_t avg){
-	LPC_GPIO2->FIOPIN0 |= avg;
+void showAverage(float avg){
+	uint8_t avg8b = (uint8_t)(avg * 255);
+	LPC_GPIO2->FIOCLR &= ~(0xFF);        // limpiar P2[7:0]
+	LPC_GPIO2->FIOSET |= (avg8b & 0xFF); // escribir nuevo valor en P2[7:0]
+
 }
