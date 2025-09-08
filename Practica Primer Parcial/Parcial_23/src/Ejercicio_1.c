@@ -108,14 +108,14 @@ void SysTick_Handler(void){
 	if(!status){
 		if(overflows_goal == 0){
 			number = (number + 1) % 10;
-			LPC_GPIO0->FIOCLR &= ~(0x7F);
+			LPC_GPIO0->FIOCLR |= (0x7F);
 			LPC_GPIO0->FIOSET |= code[number];
 		}else{
 			overflows++;
 			if(overflows == overflows_goal){
 				overflows = 0;
 				number = (number + 1) % 10;
-				LPC_GPIO0->FIOCLR &= ~(0x7F);
+				LPC_GPIO0->FIOCLR |= (0x7F);
 				LPC_GPIO0->FIOSET |= code[number];
 			}
 		}
