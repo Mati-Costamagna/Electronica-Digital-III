@@ -1,18 +1,17 @@
 /*
- * En una fabrica, hay un sistema de alarma utilizando una LPC1769 Rev. D trabajando a una
- * frecuencia de CCLK de 100 [MHz], conectado a un sensor de puerta que se activa cuando
- * la puerta se abre. El sensor esta conectado al pin P0[6], el cual genera una interrupcion
- * externa (EINT) cuando se detecta una apertura (cambio de estado). Al detectar que la
- * puerta se ha abierto, el sistema debe iniciar un temporizador utilizando el Systick para
- * contar un periodo de 30 segundos.
+ * Utilizando interrupciones por GPIO realizar un código en C que permita, mediante 4 pines de
+ * entrada GPIO, leer y guardar un número compuesto por 4 bits. Dicho número puede ser
+ * cambiado por un usuario mediante 4 switches, los cuales cuentan con sus respectivas
+ * resistencias de pull up externas. El almacenamiento debe realizarse en una variable del tipo
+ * array de forma tal que se asegure tener disponible siempre los últimos 10 números elegidos
+ * por el usuario, garantizando además que el número ingresado más antiguo, de este conjunto
+ * de 10, se encuentre en el elemento 9 y el número actual en el elemento 0 de dicho array. La
+ * interrupción por GPIO empezará teniendo la máxima prioridad de interrupción posible y cada
+ * 200 números ingresados deberá disminuir en 1 su prioridad hasta alcanzar la mínima posible.
+ * Llegado este momento, el programa deshabilitará todo tipo de interrupciones producidas por
+ * las entradas GPIO. Tener en cuenta que el código debe estar debidamente comentado.
  *
- * Durante estos 30 segundos, el usuario debera introducir un codigo de desactivacion
- * mediante un DIP switch de 4 entradas conectado a los pines P2[0]-P2[3]. El codigo correcto
- * es 0xAA (1010 en binario). El usuario tiene dos intentos para introducir el codigo correcto.
- * Si despues de dos intentos el codigo ingresado es incorrecto, la alarma se activara,
- * encendiendo un buzzer conectado al pin P1[10].
- *
- * 	Created on: Sep 6, 2025
+ * 	Created on: Sep 8, 2025
  *  Author: Matias Costamagna
  *
  */
@@ -26,68 +25,47 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define SYST_150MS_LOAD  (1499999) // 70e6 * 0.2 - 1
+static uint32_t priority = 0;
+static const uint32_t maxPriority = 31;
+static uint32_t numbers[10] = {};
 
-void cfgGPIO(void);
-void cfgIntExt(void);
-void cfgSysTick(void);
+void cfgIntGPIO(void);
 
-static const uint32_t overflow_15s = 100;
-static uint32_t intentos = 0;
-static uint32_t overflow_count = 0;
-
-int main(void)
+int main (void)
 {
-	cfgGPIO();
-
-	cfgIntExt();
+	cfgIntGPIO();
 
 	while(1){};
 
-    return 0 ;
+	return 0;
 }
 
-void cfgGPIO(void)
+void cfgIntGPIO(void)
 {
-	LPC_GPIO1->FIODIR |= (1<<10); // P1.10 salida
-	LPC_GPIO1->FIOCLR |= (1<<10);
-	LPC_GPIO2->FIODIR &= ~(0b1111<<0); // P2.0 - P2.3 como entradas
+	LPC_PINCON->PINMODE0 |= (0xAA << 0);
+	LPC_GPIOINT->IO0IntEnF |= (0x0F << 0);
+
+	NVIC_SetPriority(EINT3_IRQn, priority);
+	NVIC_EnableIRQ(EINT3_IRQn);
 }
 
-void cfgIntExt(void)
+void EINT3_IRQHandler(void)
 {
-	LPC_PINCON->PINSEL4 |= (1<<20);
-	LPC_SC->EXTINT |= (1<<0);
-	LPC_SC->EXTPOLAR |= (1<<0);
-	NVIC_EnableIRQ(EINT0_IRQn)
-}
-
-void cfgSysTick(void)
-{
-	SysTick->LOAD = nTicks;
-	SysTick->VAL = 0;
-	SysTick->CTRL = (7<<0);
-}
-
-void EINT0_IRQHandler(void)
-{
-	cfgSysTick();
-	LPC_SC->EXTINT |= (1<<0);
-}
-
-void SysTick_Handler(void)
-{
-	overflow_count++;
-	if(overflow_count == overflow_15s){
-		if((LPC_GPIO2->FIOPIN & 0b1111) == 0b1010){
-			SysTick->CTRL = (4 << 0); //Deshabilito la cuenta
+	static uint32_t inputs = 0;
+	inputs++;
+	if(inputs == 200){
+		inputs = 0;
+		priority = (priority + 1) % maxPriority;
+		if(priority == 0){
+			NVIC_DisableIRQ(EINT3_IRQn);
 		}else{
-			intentos++;
-			if(intentos == 2){
-				LPC_GPIO1->FIOSET |= (1<<10);
-				SysTick->CTRL = (4 << 0); //Deshabilito la cuenta
-			}
+			NVIC_SetPriority(EINT3_IRQn, priority);
 		}
 	}
-	SysTick->CTRL &= SysTick->CTRL;
+
+	for(uint8_t inte = 9; inte > 0; inte--){
+		numbers[inte] = numbers [inte - 1];
+	}
+	numbers[0] = LPC_GPIO0->FIOPIN & 0x0F;
+	LPC_GPIOINT->IO0IntClr |= (0x0F << 0);
 }
