@@ -4,9 +4,11 @@
  * 4 muestras y en funcion de este valor, tomar una decision sobre una salida digital de la placa:
  *
  * - Si el valor es <1[V] colocar la salida en 0 (0[V])
- * - Si el valor es >=1[V] y <=2[V] sacar el valor del promedio por el DAC
+ * - Si el valor es >=1[V] y <=2[V] hacer parpadear un LED
  * - Si el valor es >2[V] colocar la salida en 1 (3.3[V])
-
+ *
+ * 	Created on: Oct 24, 2025
+ *  Author: Matias Costamagna
 */
 
 
@@ -22,13 +24,17 @@
 
 volatile uint32_t average = 0;
 volatile uint32_t samples[SAMPLES_NUM];
+volatile uint8_t led_flag = 0;
 
 void cfgPBC(void);
 void cfgTimer(void);
 void cfgADC(void);
-void cfgDAC(void);
 
 int main(void){
+
+    cfgPBC();
+    cfgTimer();
+    cfgADC();
 
     while(1){};
 
@@ -46,26 +52,26 @@ void cfgPBC(void){
 
     PINSEL_CFG_Type pinOutput;
     pinOutput.Portnum = PINSEL_PORT_0;
-    pinOutput.Pinnum = PINSEL_PORT_0;
+    pinOutput.Pinnum = PINSEL_PIN_0;
     pinOutput.Funcnum = PINSEL_FUNC_0;
     pinOutput.Pinmode = PINSEL_PINMODE_TRISTATE;
     pinOutput.OpenDrain = PINSEL_PINMODE_NORMAL;
     GPIO_SetDir(PORT_0, PIN_0, OUTPUT);
     PINSEL_ConfigPin(&pinOutput);
-    
-    PINSEL_CFG_Type pinDAC;
-    pinDAC.Portnum = PINSEL_PORT_0;
-    pinDAC.Pinnum = PINSEL_PIN_26;
-    pinDAC.Funcnum = PINSEL_FUNC_2;
-    pinDAC.Pinmode = PINSEL_PINMODE_TRISTATE;
-    pinDAC.OpenDrain = PINSEL_PINMODE_NORMAL;
-    PINSEL_ConfigPin(&pinDAC);
+
+    PINSEL_CFG_Type pinTimer;
+    pinTimer.Portnum = PINSEL_PORT_1;
+    pinTimer.Pinnum = PINSEL_PIN_29;
+    pinTimer.Funcnum = PINSEL_FUNC_3;
+    pinTimer.Pinmode = PINSEL_PINMODE_TRISTATE;
+    pinTimer.OpenDrain = PINSEL_PINMODE_NORMAL;
+    PINSEL_ConfigPin(&pinTimer);
 
     return;
 }
 
 void cfgADC(void){
-    ADC_Init(LPC_ADC, 20000); //Frecuencia maxima 200kHz
+    ADC_Init(LPC_ADC, 200000); //Frecuencia maxima 200kHz
     ADC_BurstCmd(LPC_ADC, DISABLE);
     ADC_StartCmd(LPC_ADC, ADC_START_ON_MAT01);
     ADC_ChannelCmd(LPC_ADC, ADC_CHANNEL_0, ENABLE);
@@ -84,7 +90,7 @@ void cfgTimer(void){
 
     TIM_MATCHCFG_Type timerMAT01;
     timerMAT01.MatchChannel = 1;
-    timerMAT01.IntOnMatch = DISABLE;
+    timerMAT01.IntOnMatch = ENABLE;
     timerMAT01.StopOnMatch = DISABLE;
     timerMAT01.ResetOnMatch = ENABLE;
     timerMAT01.ExtMatchOutputType = TIM_EXTMATCH_TOGGLE;
@@ -108,11 +114,6 @@ void cfgTimer(void){
     return;
 }
 
-void cfgDAC(void){
-    DAC_Init(LPC_DAC);
-    DAC_SetBias(DAC_MAX_CURRENT_350uA);
-}
-
 void ADC_IRQHandler(void){
     static uint8_t idx = 0;
     samples[idx] = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0);
@@ -121,6 +122,7 @@ void ADC_IRQHandler(void){
 }
 
 void TIMER0_IRQHandler(void){
+    static uint8_t led_status = 1;
     if(TIM_GetIntStatus(LPC_TIM0, TIM_MR0_INT)){
         average = 0;
 
@@ -131,12 +133,17 @@ void TIMER0_IRQHandler(void){
 
         if(average < (uint32_t) UMBRAL_1V){
             FIO_ByteSetValue(PINSEL_PORT_0, PINSEL_PIN_0, 0);
+            led_flag = 0;
         }else if(average > (uint32_t) UMBRAL_2V){
-            FIO_ByteSetValue(PINSEL_PORT_0, PINSEL_PIN_0, 1);
+            FIO_ByteSetValue(PINSEL_PORT_0, PINSEL_PIN_p0, 1);
+            led_flag = 0;
         }else{
-            DAC_UpdateValue(LPC_DAC, average)
+            led_flag = 1;
         }    
+        TIM_ClearIntPending(LPC_TIM0, TIM_MR0_INT);
+    }else if(TIM_GetIntStatus(LPC_TIM0, TIM_MR1_INT) && led_flag){
+        FIO_ByteSetValue(PINSEL_PORT_0, PINSEL_PIN_0, led_status);
+        led_status = (led_status + 1) % 2;
     }
-    
-    TIM_ClearIntPending(LPC_TIM0, TIM_MR0_INT);
+    TIM_ClearIntPending(LPC_TIM0, TIM_MR1_INT);
 }

@@ -1,124 +1,101 @@
 /*
- * Utilizando Systick e interrupciones externas escribir un código en C que cuente indefinidamente de 0
- * a 9. Un pulsador conectado a Eint0 reiniciará la cuenta a 0 y se mantendrá en ese valor mientras el
- * pulsador se encuentre presionado. Un pulsador conectado a Eint1 permitirá detener o continuar la
- * cuenta cada vez que sea presionado. Un pulsador conectado a Eint2 permitirá modificar la velocidad
- * de incremento del contador. En este sentido, cada vez que se presione ese pulsador el contador pasará
- * a incrementar su cuenta de cada 1 segundo a cada 1 milisegundo y viceversa. Considerar que el
- * microcontrolador se encuentra funcionando con un reloj (cclk) de 16 Mhz. El código debe estar
- * debidamente comentado y los cálculos realizados claramente expresados. En la siguiente figura se
- * muestra una tabla que codifica el display y el esquema del hardware sobre el que funcionará el
- * programa.
+ * Programar el microcontrolador LPC1769 para que mediante su ADC digitalice dos senales analogicas
+ * cuyos anchos de banda son de 10kHz cada una. Los canales utilizados deben ser el 2 y el 4 y los
+ * datos deben ser guardados en dos regiones de memorias distintas que permitan contar con los ultimos
+ * 20 datos de cada canal. Suponer una frecuencia de core cclk de 100Mhz.
  *
- *
- * 	Created on: Sep 7, 2025
+ * 	Created on: Oct 24, 2025
  *  Author: Matias Costamagna
  *
  */
 
-#ifdef __USE_CMSIS
 #include "LPC17xx.h"
-#endif
+#include "lpc17xx_adc.h"
 
-#include <cr_section_macros.h>
+#define BUFFER_SIZE (20)
+#define ADC_BUFFER_START0 (0x2007C000)
+#define ADC_BUFFER_START1 (0x2007E000)
 
-#include <stdio.h>
-#include <stdbool.h>
-
-static const uint32_t code[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67};
-static uint8_t number = 0;
-static uint32_t overflows_goal = 1000;
-static bool status = 0;
-
-void cfgGPIO(void);
-void cfgIntExt(void);
-void cfgSysTick(void);
+void cfgPBC(void);
+void cfgADC(void);
+void cfgDMA(void);
 
 
 int main(void)
 {
-
-	cfgGPIO();
-
-	cfgIntExt();
-
-	cfgSysTick();
+	cfgPBC();
+	cfgDMA();
+	cfgADC();
 
 	while(1){};
 
     return 0 ;
 }
 
-void cfgGPIO(void)
-{
-	LPC_GPIO0->FIODIR |= (0x7F << 0);
-	LPC_GPIO0->FIOCLR |= (0x7F << 0);
+void cfgPBC(void){
+	PINSEL_CFG_Type pinADC_CH2;
+	pinADC_CH2.Portnum = PINSEL_PORT_0;
+	pinADC_CH2.Pinnum = PINSEL_PIN_25;
+	pinADC_CH2.Funcnum = PINSEL_FUNC_1;
+	pinADC_CH2.Pinmode = PINSEL_PINMODE_TRISTATE;
+	pinADC_CH2.OpenDrain = PINSEL_PINMODE_NORMAL;
+	PINSEL_ConfigPin(&pinADC_CH2);
+
+	PINSEL_CFG_Type pinADC_CH4;
+	pinADC_CH4.Portnum = PINSEL_PORT_1;
+	pinADC_CH4.Pinnum = PINSEL_PIN_30;
+	pinADC_CH4.Funcnum = PINSEL_FUNC_3;
+	pinADC_CH4.Pinmode = PINSEL_PINMODE_TRISTATE;
+	pinADC_CH4.OpenDrain = PINSEL_PINMODE_NORMAL;
+	PINSEL_ConfigPin(&pinADC_CH4);
+
+	return;
 }
 
-void cfgIntExt(void)
-{
-	LPC_PINCON->PINSEL4 |= (0b010101 << 20); //P2.10, P2.11 y P2.11 como EINTX
-	LPC_PINCON->PINMODE4 |= (0b11 << 20); //P2.10 con pull-down interna
-
-	LPC_SC->EXTMODE |= (1<<2); // EINT2 por flanco
-	LPC_SC->EXPOLAR |= (1<<0); // EINT0 activa por alto
-
-	NVIC_EnableIRQ(EINT0_IRQn);
-	NVIC_EnableIRQ(EINT1_IRQn);
-	NVIC_EnableIRQ(EINT2_IRQn);
+void cfgADC(void){
+	ADC_Init(LPC_ADC, 40000);
+	ADC_BurstCmd(LPC_ADC, ENABLE);
+	ADC_ChannelCmd(LPC_ADC, ADC_CHANNEL_2);
+	ADC_ChannelCmd(LPC_ADC, ADC_CHANNEL_4);
 }
 
-void cfgSysTick(void)
-{
-	SysTick->LOAD = 15999; // nTicks = (16e6)*(1e-3) - 1
-	SysTick->VAL = 0;
-	SysTick->CTRL = (7<<0);
-}
+void cfgGPDMA(void){
+	GPDMA_LLI_Type cfgADC_LLI0_CH0;
+	GPDMA_Channel_CFG_Type cfgADC_MEM_CH0;
+	GPDMA_LLI_Type cfgADC_LLI0_CH1;
+	GPDMA_Channel_CFG_Type cfgADC_MEM_CH1;
 
-void EINT0_IRQHandler(void)
-{
-	number = 0;
-	while(LPC_GPIO2->FIOPIN & (1<<10)){
-		LPC_GPIO0->FIOCLR &= ~(0x7F);
-		LPC_GPIO0->FIOSET |= code[number]; // Muestro a la salida el numero 0
-	}
-	LPC_SC->EXTINT |= (1<<0);
-}
+	NVIC_DisableIRQ(DMA_IRQn);
+	GPDMA_Init();
 
-void EINT1_IRQHandler(void)
-{
-	status = !status; // status == 1, significa que la cuenta debe pararse
-	LPC_SC->EXTINT |= (1<<1);
-}
+	cfgADC_LLI0_CH0.SrcAddr = (uint32_t)&(LPC_ADC->ADDR2);
+	cfgADC_LLI0_CH0.DestAddr = (uint32_t)ADC_BUFFER_START0;
+	cfgADC_LLI0_CH0.NextLLI = &cfgADC_LLI0_CH0;
+	cfgADC_LLI0_CH0.Control = (BUFFER_SIZE<<0)|(2<<18)|(2<<21)&~(1<<26)|(1<<27);
 
-void EINT2_IRQHandler(void)
-{
-	static uint32_t vTicks = 0;
-	vTicks++;
-	if(vTicks % 2){
-		overflows_goal = 0;
-	}else{
-		overflows_goal = 1000;
-	}
-	LPC_SC->EXTINT |= (1<<2);
-}
+	cfgADC_MEM_CH0.ChannelNum = 0;
+	cfgADC_MEM_CH0.TransferSize = BUFFER_SIZE;
+	cfgADC_MEM_CH0.SrcMemAddr = 0;
+	cfgADC_MEM_CH0.DestMemAddr = (uint32_t)ADC_BUFFER_START0;
+	cfgADC_MEM_CH0.TransferType = GPDMA_TRANSFERTYPE_P2M;
+	cfgADC_MEM_CH0.SrcConn = GPDMA_CONN_ADC;
+	cfgADC_MEM_CH0.DestConn = 0;
+	cfgADC_MEM_CH0.DMALLI = (uint32_t)&cfgADC_LLI0_CH0;
 
-void SysTick_Handler(void){
-	static uint32_t overflows = 0;
-	if(!status){
-		if(overflows_goal == 0){
-			number = (number + 1) % 10;
-			LPC_GPIO0->FIOCLR |= (0x7F);
-			LPC_GPIO0->FIOSET |= code[number];
-		}else{
-			overflows++;
-			if(overflows == overflows_goal){
-				overflows = 0;
-				number = (number + 1) % 10;
-				LPC_GPIO0->FIOCLR |= (0x7F);
-				LPC_GPIO0->FIOSET |= code[number];
-			}
-		}
-	}
-	SysTick->CTRL &= SysTick->CTRL;
+	cfgADC_LLI0_CH1.SrcAddr = (uint32_t)&(LPC_ADC->ADDR4);
+	cfgADC_LLI0_CH1.DestAddr = (uint32_t)ADC_BUFFER_START1;
+	cfgADC_LLI0_CH1.NextLLI = &cfgADC_LLI0_CH1;
+	cfgADC_LLI0_CH1.Control = (BUFFER_SIZE<<0)|(2<<18)|(2<<21)&~(1<<26)|(1<<27);
+
+	cfgADC_MEM_CH1.ChannelNum = 0;
+	cfgADC_MEM_CH1.TransferSize = BUFFER_SIZE;
+	cfgADC_MEM_CH1.SrcMemAddr = 0;
+	cfgADC_MEM_CH1.DestMemAddr = (uint32_t)ADC_BUFFER_START1;
+	cfgADC_MEM_CH1.TransferType = GPDMA_TRANSFERTYPE_P2M;
+	cfgADC_MEM_CH1.SrcConn = GPDMA_CONN_ADC;
+	cfgADC_MEM_CH1.DestConn = 0;
+	cfgADC_MEM_CH1.DMALLI = (uint32_t)&cfgADC_LLI0_CH1;
+
+	GPDMA_Setup(&cfgADC_MEM_CH0);
+	GPDMA_Setup(&cfgADC_MEM_CH1);
 }
